@@ -221,37 +221,6 @@ sudo bash scripts/uninstall.sh
 
 ---
 
-## Known issue / 已知问题:microphone mute OSD loop(未完全确认)
-
-Some users also report that toggling the microphone mute in KDE makes the
-volume OSD pop repeatedly (mute ↔ unmute flicker). The dock exposes a
-**Consumer Control HID with a mute key + mute LED** (`045e:084d`, input nodes
-with `kbd`/`leds` handlers), and the hardware-mute ↔ software-mute sync can form
-a feedback loop.
-
-部分用户还反映:在 KDE 里切换麦克风静音时,音量 OSD 会反复弹(静音↔取消静音闪烁)。
-Dock 暴露了一个**带静音键 + 静音指示灯的 Consumer Control HID**,硬件静音与软件静音
-的双向同步可能形成回环。
-
-This one is **not yet conclusively reproduced/fixed here.** If you can reproduce
-it reliably, please open an issue with output of:
-
-如果你能稳定复现,欢迎开 issue,并附上以下输出:
-
-```bash
-cat /proc/bus/input/devices | grep -A5 -i "audio dock"
-wpctl status
-journalctl --user -b | grep -iE "wireplumber|pipewire" | tail -50
-```
-
-Candidate workarounds to investigate (untested): masking the dock's mute key via
-a udev `hwdb` entry, or telling WirePlumber not to follow the device hardware mute.
-
-可尝试的方向(未验证):用 udev `hwdb` 屏蔽 Dock 的静音键,或让 WirePlumber 不跟随
-该设备的硬件静音。
-
----
-
 ## License
 
 MIT — see [LICENSE](LICENSE).
