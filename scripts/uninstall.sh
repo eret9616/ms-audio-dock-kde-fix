@@ -7,7 +7,7 @@
 set -euo pipefail
 
 VENDOR="045e"
-PRODUCT="084a"
+PRODUCTS=("084a" "0849")
 RULE_DST="/etc/udev/rules.d/50-msdock-nosuspend.rules"
 
 echo ">>> Removing udev rule $RULE_DST"
@@ -17,10 +17,14 @@ sudo udevadm control --reload-rules
 echo ">>> Restoring power/control=auto on any connected dock hub..."
 for dev in /sys/bus/usb/devices/*/; do
     [[ -f "${dev}idVendor" && -f "${dev}idProduct" ]] || continue
-    if [[ "$(cat "${dev}idVendor")" == "$VENDOR" && "$(cat "${dev}idProduct")" == "$PRODUCT" ]]; then
-        echo auto | sudo tee "${dev}power/control" >/dev/null
-        echo "    restored ${dev}"
-    fi
+    [[ "$(cat "${dev}idVendor")" == "$VENDOR" ]] || continue
+    pid="$(cat "${dev}idProduct")"
+    for want in "${PRODUCTS[@]}"; do
+        if [[ "$pid" == "$want" ]]; then
+            echo auto | sudo tee "${dev}power/control" >/dev/null
+            echo "    restored ${dev}"
+        fi
+    done
 done
 
 echo ">>> Done. Autosuspend behaviour reverted to kernel default."

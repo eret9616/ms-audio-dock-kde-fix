@@ -1,13 +1,19 @@
-# Microsoft Audio Dock (Surface Audio Dock) — stop the internal USB 3.0 hub
-# from autosuspending. The hub firmware mishandles USB3 SuperSpeed link power
-# management (U1/U2 LPM); when the kernel suspends the idle hub it fails the
-# resume handshake and the kernel re-enumerates it, spamming KDE's
-# "USB device detected / 4-Port USB 3.0 Hub connected" notification.
+# Microsoft Audio Dock (Surface Audio Dock) — stop the dock's internal USB hubs
+# from autosuspending. The hub firmware mishandles the suspend→resume handshake
+# on Linux; when the kernel suspends an idle hub it fails to resume cleanly and
+# re-enumerates the whole dock, spamming KDE's "USB device detected" notification.
 #
 # Keeping power/control=on prevents the suspend, so the bug never fires.
 #
-# 045e:084a = Microsoft 4-Port USB 3.0 Hub (the SuperSpeed hub inside the dock)
+# The dock has TWO internal hubs and EITHER can be the one that flaps,
+# depending on cabling/link state (e.g. through a USB extension cable the
+# SuperSpeed link may degrade and the USB 2.0 hub becomes the culprit instead):
+#   045e:084a = Microsoft 4-Port USB 3.0 Hub (SuperSpeed hub inside the dock)
+#   045e:0849 = Microsoft 4-Port USB 2.0 Hub (the audio + HID hang off this one)
+# We pin both so the fix holds regardless of which hub the kernel decides to
+# suspend.
 #
 # Install: copy to /etc/udev/rules.d/ then `sudo udevadm control --reload-rules`
 
 ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="045e", ATTR{idProduct}=="084a", TEST=="power/control", ATTR{power/control}="on"
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="045e", ATTR{idProduct}=="0849", TEST=="power/control", ATTR{power/control}="on"

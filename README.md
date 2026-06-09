@@ -34,6 +34,15 @@ Because the dock's USB-A ports usually have **nothing plugged into them**, that
 USB 3.0 hub is permanently idle, so the kernel suspends it constantly and the bug
 fires on a steady ~1–2 minute cadence.
 
+> **The dock actually has two internal hubs, and either one can be the culprit.**
+> Besides the USB 3.0 hub (`045e:084a`), there's a USB 2.0 hub (`045e:0849`) that
+> the audio interface and HID hang off of. Depending on cabling — notably when the
+> dock is connected **through a USB extension cable**, where the SuperSpeed link
+> can degrade — it's the **USB 2.0 hub** that autosuspends and fails to resume,
+> taking the whole dock tree down (`usb 3-2: USB disconnect` for `0849`, then the
+> audio/HID children re-enumerate). The fix below pins **both** hubs so it doesn't
+> matter which one your setup trips.
+
 Kernel log fingerprint:
 
 ```
@@ -50,8 +59,8 @@ usb 2-2: Product: 4-Port USB 3.0 Hub
 
 ### The fix
 
-Stop that specific hub from autosuspending (`power/control = on`). If it never
-suspends, the broken resume handshake never happens.
+Stop those hubs from autosuspending (`power/control = on`). If they never
+suspend, the broken resume handshake never happens.
 
 **One-liner (quick install):**
 
@@ -68,10 +77,10 @@ sudo bash scripts/install.sh
 sudo cp udev/50-msdock-nosuspend.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules
 
-# apply immediately to the already-connected hub (no replug needed):
+# apply immediately to the already-connected hubs (no replug needed):
 for d in /sys/bus/usb/devices/*/; do
-  [ "$(cat "$d/idVendor" 2>/dev/null)" = "045e" ] &&
-  [ "$(cat "$d/idProduct" 2>/dev/null)" = "084a" ] &&
+  v=$(cat "$d/idVendor" 2>/dev/null); p=$(cat "$d/idProduct" 2>/dev/null)
+  [ "$v" = "045e" ] && { [ "$p" = "084a" ] || [ "$p" = "0849" ]; } &&
   echo on | sudo tee "$d/power/control"
 done
 ```
@@ -103,16 +112,16 @@ sudo bash scripts/uninstall.sh
 ### Tested on
 
 - Kubuntu / KDE Plasma 6, kernel 6.x
-- Microsoft Audio Dock (`045e:084d`), internal hub `045e:084a`
+- Microsoft Audio Dock (`045e:084d`), internal hubs `045e:084a` + `045e:0849`
 
 USB IDs in this dock for reference:
 
 | VID:PID | Device | Bus | Notes |
 |---|---|---|---|
-| `045e:084a` | 4-Port USB 3.0 Hub | USB 3.0 | **the one that flaps** |
-| `045e:0849` | 4-Port USB 2.0 Hub | USB 2.0 | stable |
-| `045e:084d` | Microsoft Audio Dock (audio + HID) | USB 2.0 | your speaker/mic, stable |
-| `045e:084c` | Realtek USB2.0 HID | USB 2.0 | stable |
+| `045e:084a` | 4-Port USB 3.0 Hub | USB 3.0 | **can flap** — pinned by the rule |
+| `045e:0849` | 4-Port USB 2.0 Hub | USB 2.0 | **can also flap** (esp. via extension cable) — pinned by the rule |
+| `045e:084d` | Microsoft Audio Dock (audio + HID) | USB 2.0 | your speaker/mic, hangs off `0849` |
+| `045e:084c` | Realtek USB2.0 HID | USB 2.0 | hangs off `0849` |
 
 ---
 
@@ -141,6 +150,13 @@ Dock 内部有一颗 **4 口 USB 3.0 集线器**(`045e:084a`)。USB 3.0 有链�
 由于 Dock 上的 USB-A 口通常**什么都没插**,这颗 3.0 hub 永远处于闲置,内核就不停地
 让它休眠,于是 bug 以稳定的 ~1–2 分钟节奏反复触发。
 
+> **Dock 内部其实有两颗 hub,哪一颗都可能是元凶。** 除了 USB 3.0 hub(`045e:084a`),
+> 还有一颗 USB 2.0 hub(`045e:0849`),音频接口和 HID 都挂在它下面。视连线情况而定
+> ——尤其是**经过 USB 延长线**连接、SuperSpeed 链路质量下降时——抖动的会变成那颗
+> **USB 2.0 hub**:它休眠后唤醒失败,把整棵 dock 树拽下来(日志里是 `usb 3-2:
+> USB disconnect` 对应 `0849`,随后音频/HID 子设备一起重新枚举)。下面的修复会把
+> **两颗 hub 都摁住**,这样无论你的环境触发的是哪一颗都不受影响。
+
 内核日志特征:
 
 ```
@@ -156,8 +172,8 @@ usb 2-2: Product: 4-Port USB 3.0 Hub
 
 ### 解决方案
 
-让这颗 hub 不要自动休眠(`power/control = on`)。它永不休眠,那个有问题的唤醒握手
-就永远不会发生。
+让这两颗 hub 不要自动休眠(`power/control = on`)。它们永不休眠,那个有问题的唤醒
+握手就永远不会发生。
 
 **一键安装:**
 
@@ -176,8 +192,8 @@ sudo udevadm control --reload-rules
 
 # 立即对已连接的 hub 生效(不用重插):
 for d in /sys/bus/usb/devices/*/; do
-  [ "$(cat "$d/idVendor" 2>/dev/null)" = "045e" ] &&
-  [ "$(cat "$d/idProduct" 2>/dev/null)" = "084a" ] &&
+  v=$(cat "$d/idVendor" 2>/dev/null); p=$(cat "$d/idProduct" 2>/dev/null)
+  [ "$v" = "045e" ] && { [ "$p" = "084a" ] || [ "$p" = "0849" ]; } &&
   echo on | sudo tee "$d/power/control"
 done
 ```
@@ -208,16 +224,16 @@ sudo bash scripts/uninstall.sh
 ### 测试环境
 
 - Kubuntu / KDE Plasma 6,内核 6.x
-- Microsoft Audio Dock(`045e:084d`),内部 hub `045e:084a`
+- Microsoft Audio Dock(`045e:084d`),内部 hub `045e:084a` + `045e:0849`
 
 本 Dock 的 USB ID 一览:
 
 | VID:PID | 设备 | 总线 | 说明 |
 |---|---|---|---|
-| `045e:084a` | 4-Port USB 3.0 Hub | USB 3.0 | **就是它在抖** |
-| `045e:0849` | 4-Port USB 2.0 Hub | USB 2.0 | 稳定 |
-| `045e:084d` | Microsoft Audio Dock(音频 + HID) | USB 2.0 | 你的音箱/麦克风,稳定 |
-| `045e:084c` | Realtek USB2.0 HID | USB 2.0 | 稳定 |
+| `045e:084a` | 4-Port USB 3.0 Hub | USB 3.0 | **可能抖** —— 规则已摁住 |
+| `045e:0849` | 4-Port USB 2.0 Hub | USB 2.0 | **也可能抖**(尤其过延长线时)—— 规则已摁住 |
+| `045e:084d` | Microsoft Audio Dock(音频 + HID) | USB 2.0 | 你的音箱/麦克风,挂在 `0849` 下面 |
+| `045e:084c` | Realtek USB2.0 HID | USB 2.0 | 挂在 `0849` 下面 |
 
 ---
 
