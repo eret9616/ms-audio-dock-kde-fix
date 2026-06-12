@@ -85,14 +85,55 @@ for d in /sys/bus/usb/devices/*/; do
 done
 ```
 
+### Failure mode 2: the dock resets itself every ~5 minutes
+
+If the dock still drops **after** the udev rule is in place, look closely at the
+pattern. In this second mode the **whole dock tree** — both hubs, audio and HID
+— disconnects **in the same second**, on an almost exact **~5 minute** cadence,
+with **zero kernel errors**, and the volume resets after each drop:
+
+```
+usb 3-2:   USB disconnect, device number 6    <- USB 2.0 hub (0849)
+usb 3-2.2: USB disconnect, device number 7    <- audio
+usb 2-2:   USB disconnect, device number 2    <- USB 3.0 hub (084a)
+usb 3-2.5: USB disconnect, device number 8    <- HID
+...all in the same second, every ~5 minutes, no errors before it...
+```
+
+That is **not** the kernel suspending anything — it's the **dock's firmware
+resetting itself**. When PipeWire/WirePlumber suspends the dock's audio
+interface (the default a few seconds after audio goes idle), the dock decides
+it is unused and power-cycles its USB function every ~5 minutes. No kernel-side
+setting can prevent a reset the device initiates itself.
+
+**Quick confirmation** — feed it silence and watch the flapping stop:
+
+```bash
+paplay --raw --rate=8000 --channels=1 \
+  --device=alsa_output.usb-Microsoft_Microsoft_Audio_Dock_123456789-00.analog-stereo /dev/zero
+```
+
+**The fix** (installed by `install.sh`): a WirePlumber rule
+([`wireplumber/50-msdock-no-suspend.conf`](wireplumber/50-msdock-no-suspend.conf))
+that keeps the dock's audio **output node** permanently open:
+
+- `session.suspend-timeout-seconds = 0` — never suspend the node after idle
+- `node.always-process = true` — keep it running from creation (without this, a
+  freshly plugged dock that hasn't played any sound yet sits in SUSPENDED and
+  still resets)
+
+It matches the dock by its device-reported name, so **only this dock** is
+affected — every other sound device keeps its normal power saving. The cost is
+a negligible idle USB audio stream (the dock has its own PSU anyway).
+
 ### Verify
 
 ```bash
 journalctl -k -f | grep -i 'usb .*disconnect'
 ```
 
-Before the fix you'd see the hub disconnect every 1–2 minutes. After the fix:
-silence. The KDE popups stop too.
+Before the fixes you'd see the hub disconnect every 1–2 minutes (mode 1) or the
+whole dock every ~5 minutes (mode 2). After: silence. The KDE popups stop too.
 
 ### Revert
 
@@ -111,7 +152,7 @@ sudo bash scripts/uninstall.sh
 
 ### Tested on
 
-- Kubuntu / KDE Plasma 6, kernel 6.x
+- Kubuntu / KDE Plasma 6, kernel 6.x, PipeWire + WirePlumber 0.5
 - Microsoft Audio Dock (`045e:084d`), internal hubs `045e:084a` + `045e:0849`
 
 USB IDs in this dock for reference:
@@ -198,13 +239,51 @@ for d in /sys/bus/usb/devices/*/; do
 done
 ```
 
+### 第二种掉线模式:dock 每 ~5 分钟自我复位一次
+
+如果装好 udev 规则之后 dock **还在掉**,仔细看掉线的模式。第二种模式的特征是:
+**整棵 dock 树**——两颗 hub、音频、HID——**同一秒**全部掉线,周期几乎精确
+**~5 分钟**,内核**零报错**,而且每次掉线后音量被重置:
+
+```
+usb 3-2:   USB disconnect, device number 6    <- USB 2.0 hub (0849)
+usb 3-2.2: USB disconnect, device number 7    <- 音频
+usb 2-2:   USB disconnect, device number 2    <- USB 3.0 hub (084a)
+usb 3-2.5: USB disconnect, device number 8    <- HID
+...同一秒全掉,每 ~5 分钟一次,掉之前没有任何报错...
+```
+
+这**不是**内核在休眠谁——是 **dock 固件自己在复位**。PipeWire/WirePlumber 在
+没有声音播放几秒后会把 dock 的音频接口挂起(默认省电行为),dock 固件发现自己
+"没人用",就每隔 ~5 分钟把 USB 功能整个重启一遍。复位由设备自己发起,内核侧
+怎么设置都拦不住。
+
+**快速确认**——喂一条静音流,看抖动是否立刻消失:
+
+```bash
+paplay --raw --rate=8000 --channels=1 \
+  --device=alsa_output.usb-Microsoft_Microsoft_Audio_Dock_123456789-00.analog-stereo /dev/zero
+```
+
+**修复**(`install.sh` 会自动安装):一条 WirePlumber 规则
+([`wireplumber/50-msdock-no-suspend.conf`](wireplumber/50-msdock-no-suspend.conf)),
+让 dock 的音频**输出节点**永远保持打开:
+
+- `session.suspend-timeout-seconds = 0` —— 空闲后不挂起
+- `node.always-process = true` —— 节点创建后立即保持运行(没有这条,刚插上、
+  还没放过声音时节点会停在 SUSPENDED,dock 照样复位)
+
+按设备上报的名字匹配,**只影响这台 dock**,其它声卡照常省电。代价只是一条
+空闲的 USB 音频流,可忽略(dock 反正有自己的电源)。
+
 ### 验证
 
 ```bash
 journalctl -k -f | grep -i 'usb .*disconnect'
 ```
 
-修复前每 1–2 分钟会看到 hub 掉线一次;修复后:一片安静,KDE 弹窗也停了。
+修复前:每 1–2 分钟 hub 掉一次(模式一),或每 ~5 分钟整个 dock 掉一次(模式二);
+修复后:一片安静,KDE 弹窗也停了。
 
 ### 撤销
 
@@ -223,7 +302,7 @@ sudo bash scripts/uninstall.sh
 
 ### 测试环境
 
-- Kubuntu / KDE Plasma 6,内核 6.x
+- Kubuntu / KDE Plasma 6,内核 6.x,PipeWire + WirePlumber 0.5
 - Microsoft Audio Dock(`045e:084d`),内部 hub `045e:084a` + `045e:0849`
 
 本 Dock 的 USB ID 一览:
